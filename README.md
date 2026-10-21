@@ -1,3 +1,5 @@
+<img width="569" height="377" alt="image" src="https://github.com/user-attachments/assets/ac9192a9-093d-494c-ba0b-79ee0f241840" />
+
 # 生活记账本 · 完整搭建教程
 
 ## 介绍
