@@ -15,6 +15,7 @@ function monthKey(ts) { const d = bj(ts); return d.getUTCFullYear() + '-' + p2(d
 function dayKey(ts) { const d = bj(ts); return monthKey(ts) + '-' + p2(d.getUTCDate()); }
 function timeStr(ts) { const d = bj(ts); return p2(d.getUTCHours()) + ':' + p2(d.getUTCMinutes()); }
 function fmtC(c) { return '¥' + (c / 100).toFixed(2); }
+function fmtNet(c) { return (c >= 0 ? '+' : '-') + fmtC(Math.abs(c)); }
 
 // ---- 密码加密（AES-GCM，密钥存 D1 settings 表，部署更新不影响） ----
 let _encKey = null;
@@ -343,7 +344,7 @@ async function monthBillText(env, account) {
   for (const e of show) {
     lines.push(`${e.day.slice(5)} ${timeStr(e.ts)} ${e.note || (e.type === 'in' ? '收入' : '支出')} ${e.type === 'in' ? '+' : '-'}${fmtC(e.amount)}`);
   }
-  lines.push(`———\n总收入 ${fmtC(tin)} · 总支出 ${fmtC(tout)} · 结余 ${fmtC(tin - tout)}`);
+  lines.push(`———\n总收入 ${fmtC(tin)} · 总支出 ${fmtC(tout)} · 净收益 ${fmtNet(tin - tout)}`);
   return lines.join('\n');
 }
 
@@ -355,7 +356,7 @@ async function allBillText(env, account) {
   for (const m of byMonth) {
     lines.push(`${m.month}：收 ${fmtC(m.in)} · 支 ${fmtC(m.out)}（${m.count} 笔）`);
   }
-  lines.push(`———\n总收入 ${fmtC(s.all.in)} · 总支出 ${fmtC(s.all.out)} · 结余 ${fmtC(s.all.in - s.all.out)}`);
+  lines.push(`———\n总收入 ${fmtC(s.all.in)} · 总支出 ${fmtC(s.all.out)} · 净收益 ${fmtNet(s.all.in - s.all.out)}`);
   return lines.join('\n');
 }
 
@@ -423,7 +424,7 @@ async function handleTg(env, wh, u) {
       const s = await sumsFor(env, cfg.account);
       await tgCall(token, 'sendMessage', {
         chat_id: chatId,
-        text: `✅ 已计入：${note} ${type === 'in' ? '收入' : '支出'} ${fmtC(cents)}\n\n本月：收入 ${fmtC(s.month.in)} · 支出 ${fmtC(s.month.out)}\n全部：收入 ${fmtC(s.all.in)} · 支出 ${fmtC(s.all.out)}`,
+        text: `✅ 已计入：${note} ${type === 'in' ? '收入' : '支出'} ${fmtC(cents)}\n\n本月：收入 ${fmtC(s.month.in)} · 支出 ${fmtC(s.month.out)} · 净收益 ${fmtNet(s.month.in - s.month.out)}\n全部：收入 ${fmtC(s.all.in)} · 支出 ${fmtC(s.all.out)} · 净收益 ${fmtNet(s.all.in - s.all.out)}`,
         reply_markup: BILL_KB,
       });
       return;
@@ -661,16 +662,19 @@ input, button { font-family:inherit; }
         <div class="lab">今日</div>
         <div class="row">收入 <span class="money-in big" id="tIn">¥0.00</span></div>
         <div class="row">支出 <span class="money-out big" id="tOut">¥0.00</span></div>
+        <div class="row">净收益 <span class="big" id="tNet">¥0.00</span></div>
       </div>
       <div class="card glass">
         <div class="lab">本月</div>
         <div class="row">收入 <span class="money-in big" id="mIn">¥0.00</span></div>
         <div class="row">支出 <span class="money-out big" id="mOut">¥0.00</span></div>
+        <div class="row">净收益 <span class="big" id="mNet">¥0.00</span></div>
       </div>
       <div class="card glass">
         <div class="lab">全部</div>
         <div class="row">收入 <span class="money-in big" id="aIn">¥0.00</span></div>
         <div class="row">支出 <span class="money-out big" id="aOut">¥0.00</span></div>
+        <div class="row">净收益 <span class="big" id="aNet">¥0.00</span></div>
       </div>
     </div>
 
@@ -825,6 +829,11 @@ var billKey = '';
 
 function $(id) { return document.getElementById(id); }
 function fmt(c) { return '¥' + (c / 100).toFixed(2); }
+function setNet(id, v) {
+  var el = $(id);
+  el.textContent = (v >= 0 ? '+' : '-') + fmt(Math.abs(v));
+  el.className = 'big ' + (v >= 0 ? 'money-in' : 'money-out');
+}
 function yuan(c) { return (c / 100).toFixed(2); }
 function esc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -959,6 +968,9 @@ function refresh() {
     $('tIn').textContent = fmt(s.today.in); $('tOut').textContent = fmt(s.today.out);
     $('mIn').textContent = fmt(s.month.in); $('mOut').textContent = fmt(s.month.out);
     $('aIn').textContent = fmt(s.all.in); $('aOut').textContent = fmt(s.all.out);
+    setNet('tNet', s.today.in - s.today.out);
+    setNet('mNet', s.month.in - s.month.out);
+    setNet('aNet', s.all.in - s.all.out);
     renderMonths(s.months);
     renderYears(s.months);
     loadEntries(s.curMonth, $('curList'));
@@ -1139,9 +1151,10 @@ function billHead(title) {
   window.scrollTo(0, 0);
 }
 function totalsHtml(tin, tout, labelIn, labelOut, labelNet) {
+  var net = tin - tout;
   return labelIn + ' <span class="r money-in">' + fmt(tin) + '</span><br>' +
     labelOut + ' <span class="r money-out">' + fmt(tout) + '</span><br>' +
-    labelNet + ' <span class="r">' + fmt(tin - tout) + '</span>';
+    labelNet + ' <span class="r ' + (net >= 0 ? 'money-in' : 'money-out') + '">' + (net >= 0 ? '+' : '-') + fmt(Math.abs(net)) + '</span>';
 }
 
 function openMonthBill(month, keepView) {
@@ -1164,7 +1177,7 @@ function openMonthBill(month, keepView) {
     html += '</tbody></table>';
     if (!list.length) html = '<div class="empty">暂无记录</div>';
     $('billBodyWrap').innerHTML = html;
-    $('billTotal').innerHTML = totalsHtml(tin, tout, '总收入', '总支出', '结余');
+    $('billTotal').innerHTML = totalsHtml(tin, tout, '总收入', '总支出', '净收益');
     bindActions($('billBodyWrap'));
   });
 }
@@ -1179,15 +1192,15 @@ function openYearBill(year) {
   for (var i = 0; i < years.length; i++) if (years[i].year === year) y = years[i];
   if (!y) { $('billBodyWrap').innerHTML = '<div class="empty">暂无记录</div>'; $('billTotal').innerHTML = ''; return; }
   var list = y.list.slice().sort(function (a, b) { return a.month < b.month ? -1 : 1; });
-  var html = '<table class="btable"><thead><tr><th>月份</th><th class="r">收入（元）</th><th class="r">支出（元）</th><th class="r">结余（元）</th></tr></thead><tbody>';
+  var html = '<table class="btable"><thead><tr><th>月份</th><th class="r">收入（元）</th><th class="r">支出（元）</th><th class="r">净收益（元）</th></tr></thead><tbody>';
   for (var j = 0; j < list.length; j++) {
     var m = list[j];
     html += '<tr class="clickable" data-month="' + m.month + '"><td>' + m.month.slice(5) + '月（' + m.count + ' 笔）</td>' +
-      '<td class="r money-in">' + yuan(m.in) + '</td><td class="r money-out">' + yuan(m.out) + '</td><td class="r">' + yuan(m.in - m.out) + '</td></tr>';
+      '<td class="r money-in">' + yuan(m.in) + '</td><td class="r money-out">' + yuan(m.out) + '</td><td class="r ' + (m.in - m.out >= 0 ? 'money-in' : 'money-out') + '">' + (m.in - m.out >= 0 ? '+' : '-') + yuan(Math.abs(m.in - m.out)) + '</td></tr>';
   }
   html += '</tbody></table><p style="font-size:12px;color:#7488a0;margin-top:10px;">点某个月可查看该月明细账单</p>';
   $('billBodyWrap').innerHTML = html;
-  $('billTotal').innerHTML = totalsHtml(y.in, y.out, '全年总收入', '全年总支出', '全年结余');
+  $('billTotal').innerHTML = totalsHtml(y.in, y.out, '全年总收入', '全年总支出', '全年净收益');
   var rows = $('billBodyWrap').querySelectorAll('[data-month]');
   for (var k = 0; k < rows.length; k++) {
     rows[k].onclick = function () { openMonthBill(this.getAttribute('data-month')); };
@@ -1199,18 +1212,18 @@ function openAllBill() {
   billHead('全部账单');
   $('delPeriodBtn').classList.add('hidden');
   var years = groupYears(summary.months);
-  var html = '<table class="btable"><thead><tr><th>年份</th><th class="r">收入（元）</th><th class="r">支出（元）</th><th class="r">结余（元）</th></tr></thead><tbody>';
+  var html = '<table class="btable"><thead><tr><th>年份</th><th class="r">收入（元）</th><th class="r">支出（元）</th><th class="r">净收益（元）</th></tr></thead><tbody>';
   var tin = 0, tout = 0;
   for (var i = 0; i < years.length; i++) {
     var y = years[i];
     tin += y.in; tout += y.out;
     html += '<tr class="clickable" data-year="' + y.year + '"><td>' + y.year + ' 年（' + y.count + ' 笔）</td>' +
-      '<td class="r money-in">' + yuan(y.in) + '</td><td class="r money-out">' + yuan(y.out) + '</td><td class="r">' + yuan(y.in - y.out) + '</td></tr>';
+      '<td class="r money-in">' + yuan(y.in) + '</td><td class="r money-out">' + yuan(y.out) + '</td><td class="r ' + (y.in - y.out >= 0 ? 'money-in' : 'money-out') + '">' + (y.in - y.out >= 0 ? '+' : '-') + yuan(Math.abs(y.in - y.out)) + '</td></tr>';
   }
   html += '</tbody></table><p style="font-size:12px;color:#7488a0;margin-top:10px;">点某年可查看该年账单</p>';
   if (!years.length) html = '<div class="empty">暂无记录</div>';
   $('billBodyWrap').innerHTML = html;
-  $('billTotal').innerHTML = totalsHtml(tin, tout, '全部总收入', '全部总支出', '全部结余');
+  $('billTotal').innerHTML = totalsHtml(tin, tout, '全部总收入', '全部总支出', '全部净收益');
   var rows = $('billBodyWrap').querySelectorAll('[data-year]');
   for (var j = 0; j < rows.length; j++) {
     rows[j].onclick = function () { openYearBill(this.getAttribute('data-year')); };
